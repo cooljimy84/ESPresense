@@ -24,6 +24,7 @@ interface Asset {
     content: string | Buffer | Uint8Array;
     contentType: string;
     type: string;
+	isServer: boolean;
 }
 
 interface CompressStats {
@@ -95,6 +96,11 @@ export function cppPlugin(options: CppPluginOptions = {}): Plugin {
     const basePath = options.basePath || '';
     const staticDir = resolve(__dirname, options.staticDir || '../static');
     const outputDir = resolve(__dirname, options.outputDir || '../../src');
+    console.log('Plugin initialized with output directory:', outputDir);
+    const getOutputPath = (path: string, isServer: boolean) => {
+        const prefix = isServer ? 'server_' : '';
+        return resolve(outputDir, `${prefix}${path}`);
+    };
     const outPrefix = options.outPrefix || 'web_';
 
     function getGroupName(path: string, type: string): string {
@@ -124,19 +130,20 @@ export function cppPlugin(options: CppPluginOptions = {}): Plugin {
                         const content = await fs.readFile(filePath);
                         const ext = file.split('.').pop()?.toLowerCase() || '';
                         assets.set(file, {
-                            path: file,
-                            name: file.replace(/[.-]/g, '_'),
-                            content,
-                            contentType: mime.getType(file) || 'application/octet-stream',
-                            type: ext
-                        });
+                                                    path: file,
+                                                    name: file.replace(/[.-]/g, '_'),
+                                                    content,
+                                                    contentType: mime.getType(file) || 'application/octet-stream',
+                                                    type: ext,
+                                                    isServer: false
+                                                });
                     }
                 }
                 if (assets.size > 0) {
                     console.log(`Captured ${assets.size} static assets from ${staticDir}`);
                 }
-            } catch (error) {
-                if (error.code !== 'ENOENT') {
+            } catch (error: any) {
+                if (error?.code !== 'ENOENT') {
                     console.error(`Error reading static directory ${staticDir}:`, error);
                 }
             }
@@ -149,12 +156,14 @@ export function cppPlugin(options: CppPluginOptions = {}): Plugin {
                 if (filename.includes('.svelte-kit/output/server')) return html;
 
                 const basename = filename.split('/').pop() || filename;
+                const isServer = filename.includes('.svelte-kit/output/server');
                 bundleAssets.set(basename, {
                     path: basename,
                     name: basename.replace('.html', '_html').replace(/[.-]/g, '_'),
                     content: html,
                     contentType: 'text/html',
-                    type: 'html'
+                    type: 'html',
+                    isServer
                 });
 
                 return html;
@@ -162,11 +171,12 @@ export function cppPlugin(options: CppPluginOptions = {}): Plugin {
         },
 
         async generateBundle(_, bundle) {
-            // Skip SSR builds
-            if (!Object.keys(bundle).some(key =>
-                key.includes('immutable/entry/app') ||
-                key.includes('immutable/entry/start')
-            )) return;
+            // Determine if this is a server build
+            const isServer = Object.keys(bundle).some(key =>
+                key.startsWith('.svelte-kit/output/server/') ||
+                key.includes('/server/') ||
+                key.includes('entries/')
+            );
 
             for (const [fileName, file] of Object.entries(bundle)) {
                 if (fileName.split('/')[0].startsWith('.')) continue;
@@ -178,15 +188,19 @@ export function cppPlugin(options: CppPluginOptions = {}): Plugin {
                     : file.source;
                 const ext = fileName.split('.').pop()?.toLowerCase() || '';
 
-                bundleAssets.set(fileName, {
-                    path: fileName,
-                    name: fileName.replace(/[\/\\]/g, '_').replace(/[.-]/g, '_'),
-                    content,
-                    contentType: file.type === 'chunk'
-                        ? 'application/javascript'
-                        : mime.getType(fileName) || 'application/octet-stream',
-                    type: ext
-                });
+                // Only include assets that aren't manifest or metadata files
+                if (!fileName.endsWith('.json')) {
+                    bundleAssets.set(fileName, {
+                        path: fileName,
+                        name: fileName.replace(/[\/\\]/g, '_').replace(/[.-]/g, '_'),
+                        content,
+                        contentType: file.type === 'chunk'
+                            ? 'application/javascript'
+                            : mime.getType(fileName) || 'application/octet-stream',
+                        type: ext,
+                        isServer
+                    });
+                }
             }
         },
 
@@ -200,25 +214,85 @@ export function cppPlugin(options: CppPluginOptions = {}): Plugin {
                 // Group assets by directory path and type
                 const groupedAssets = new Map<string, Asset[]>();
 
-                // Add bundle assets (including HTML files)
+                // Wait a bit for adapter-static to finish writing files
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                // Process HTML files from adapter-static output
+                try {
+                    const buildDir = resolve(__dirname, '../build');
+                    console.log('Looking for HTML files in:', buildDir);
+                    const entries = await fs.readdir(buildDir);
+                    console.log('Found files:', entries);
+
+                    for (const entry of entries) {
+                        if (entry.endsWith('.html')) {
+                            const fullPath = resolve(buildDir, entry);
+                            const content = await fs.readFile(fullPath, 'utf-8');
+                            const htmlAsset = {
+                                path: entry,
+                                name: entry.replace(/[.-]/g, '_'),
+                                content,
+                                contentType: 'text/html',
+                                type: 'html',
+                                isServer: false
+                            };
+                            bundleAssets.set(entry, htmlAsset);
+                            console.log('Processed HTML file:', entry);
+
+                            // Add to client assets group
+                            const groupName = getGroupName(entry, 'html');
+                            const group = groupedAssets.get(groupName) || [];
+                            group.push(htmlAsset);
+                            groupedAssets.set(groupName, group);
+                        }
+                    }
+                } catch (error: any) {
+                    console.error('Error processing HTML files:', error);
+                }
+
+                // Add bundle assets (including HTML files), separating server and client assets
+                const clientAssets = new Map<string, Asset[]>();
+                const serverAssets = new Map<string, Asset[]>();
+
                 for (const asset of bundleAssets.values()) {
                     const groupName = getGroupName(asset.path, asset.type);
-                    const group = groupedAssets.get(groupName) || [];
+                    const targetMap = asset.isServer ? serverAssets : clientAssets;
+                    const group = targetMap.get(groupName) || [];
                     group.push(asset);
+                    targetMap.set(groupName, group);
+                }
+
+                // Process client assets
+                for (const [groupName, assets] of clientAssets) {
+                    const group = groupedAssets.get(groupName) || [];
+                    group.push(...assets);
                     groupedAssets.set(groupName, group);
                 }
 
-                // Add static assets
+                // Process server assets with server_ prefix
+                for (const [groupName, assets] of serverAssets) {
+                    const serverGroupName = `server_${groupName}`;
+                    const group = groupedAssets.get(serverGroupName) || [];
+                    group.push(...assets);
+                    groupedAssets.set(serverGroupName, group);
+                }
+
+                // Add static assets (these are always client-side)
                 for (const asset of assets.values()) {
                     const groupName = getGroupName(asset.path, asset.type);
                     const group = groupedAssets.get(groupName) || [];
-                    group.push(asset);
+                    group.push({
+                        ...asset,
+                        isServer: false
+                    });
                     groupedAssets.set(groupName, group);
                 }
 
                 // Generate headers
                 try {
-                    await fs.mkdir(outputDir, { recursive: true });
+                    console.log(`Creating output directory: ${outputDir}`);
+                                        await fs.mkdir(outputDir, { recursive: true });
+                                        console.log(`Output directory created/exists at: ${outputDir}`);
 
                     const routes: string[] = [];
                     const htmlRoutes: string[] = [];
@@ -277,7 +351,21 @@ export function cppPlugin(options: CppPluginOptions = {}): Plugin {
                             }
                         }
 
-                        await fs.writeFile(resolve(outputDir, `${groupName}.h`), header);
+                        // Check if this is a server build by looking at the bundle structure
+                        const isServer = Array.from(bundleAssets.keys()).some(key =>
+                            key.startsWith('.svelte-kit/output/server/') ||
+                            key.includes('/server/') ||
+                            key.includes('entries/')
+                        );
+                        console.log(`Writing ${isServer ? 'server' : 'client'} file: ${getOutputPath(`${groupName}.h`, isServer)}`);
+                        console.log('Bundle assets:', Array.from(bundleAssets.keys()));
+                        const filePath = getOutputPath(`${groupName}.h`, isServer);
+                                                try {
+                                                    await fs.writeFile(filePath, header);
+                                                    console.log(`Successfully wrote file: ${filePath}`);
+                                                } catch (error) {
+                                                    console.error(`Error writing file ${filePath}:`, error);
+                                                }
                     }
 
                     // Output compression stats
@@ -345,7 +433,23 @@ ${routes.join('\n')}
 ${htmlRoutes.join('\n')}
 }`;
 
-                    await fs.writeFile(resolve(outputDir, `${outPrefix}routes.h`), routesHeader);
+                    // Check if this is a server build by looking at the bundle structure
+                    const isServer = Array.from(bundleAssets.keys()).some(key =>
+                        key.startsWith('.svelte-kit/output/server/') ||
+                        key.includes('/server/') ||
+                        key.includes('entries/')
+                    );
+                    console.log('\nWriting routes file:');
+                    console.log('Is server build:', isServer);
+                    console.log('Output path:', getOutputPath(`${outPrefix}routes.h`, isServer));
+                    console.log('Bundle keys:', Array.from(bundleAssets.keys()));
+                    const routesPath = getOutputPath(`${outPrefix}routes.h`, isServer);
+                                        try {
+                                            await fs.writeFile(routesPath, routesHeader);
+                                            console.log(`Successfully wrote routes file: ${routesPath}`);
+                                        } catch (error) {
+                                            console.error(`Error writing routes file ${routesPath}:`, error);
+                                        }
 
                 } catch (error) {
                     console.error(chalk.red(`Error writing output files to ${outputDir}:`), error);
