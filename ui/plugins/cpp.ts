@@ -217,49 +217,28 @@ export function cppPlugin(options: CppPluginOptions = {}): Plugin {
                 // Wait a bit for adapter-static to finish writing files
                 await new Promise(resolve => setTimeout(resolve, 1000));
 
-                // Process HTML files from adapter-static output
-                try {
-                    const buildDir = resolve(__dirname, '../build');
-                    console.log('Looking for HTML files in:', buildDir);
-                    const entries = await fs.readdir(buildDir);
-                    console.log('Found files:', entries);
-
-                    for (const entry of entries) {
-                        if (entry.endsWith('.html')) {
-                            const fullPath = resolve(buildDir, entry);
-                            const content = await fs.readFile(fullPath, 'utf-8');
-                            const htmlAsset = {
-                                path: entry,
-                                name: entry.replace(/[.-]/g, '_'),
-                                content,
-                                contentType: 'text/html',
-                                type: 'html',
-                                isServer: false
-                            };
-                            bundleAssets.set(entry, htmlAsset);
-                            console.log('Processed HTML file:', entry);
-
-                            // Add to client assets group
-                            const groupName = getGroupName(entry, 'html');
-                            const group = groupedAssets.get(groupName) || [];
-                            group.push(htmlAsset);
-                            groupedAssets.set(groupName, group);
-                        }
+                // Process HTML files from bundle assets
+                for (const asset of bundleAssets.values()) {
+                    if (asset.type === 'html') {
+                        const groupName = getGroupName(asset.path, 'html');
+                        const group = groupedAssets.get(groupName) || [];
+                        group.push(asset);
+                        groupedAssets.set(groupName, group);
                     }
-                } catch (error: any) {
-                    console.error('Error processing HTML files:', error);
                 }
 
-                // Add bundle assets (including HTML files), separating server and client assets
+                // Add bundle assets (excluding HTML files), separating server and client assets
                 const clientAssets = new Map<string, Asset[]>();
                 const serverAssets = new Map<string, Asset[]>();
 
                 for (const asset of bundleAssets.values()) {
-                    const groupName = getGroupName(asset.path, asset.type);
-                    const targetMap = asset.isServer ? serverAssets : clientAssets;
-                    const group = targetMap.get(groupName) || [];
-                    group.push(asset);
-                    targetMap.set(groupName, group);
+                    if (asset.type !== 'html') {
+                        const groupName = getGroupName(asset.path, asset.type);
+                        const targetMap = asset.isServer ? serverAssets : clientAssets;
+                        const group = targetMap.get(groupName) || [];
+                        group.push(asset);
+                        targetMap.set(groupName, group);
+                    }
                 }
 
                 // Process client assets
