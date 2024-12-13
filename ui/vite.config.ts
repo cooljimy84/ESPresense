@@ -1,3 +1,4 @@
+// This is a test comment to demonstrate the file listing format
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 import strip from '@rollup/plugin-strip';
