@@ -1,6 +1,5 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
-import { cppPlugin } from './plugins/cpp';
 import strip from '@rollup/plugin-strip';
 
 export default defineConfig({
@@ -10,7 +9,6 @@ export default defineConfig({
             include: '**/*.(js|ts|svelte)',
             functions: ['console.*', 'assert.*'],
         }),
-        cppPlugin({ basePath: '/ui', outPrefix: 'ui_' })
     ],
     build: {
         sourcemap: false,
