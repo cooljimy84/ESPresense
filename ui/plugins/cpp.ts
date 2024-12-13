@@ -214,17 +214,46 @@ export function cppPlugin(options: CppPluginOptions = {}): Plugin {
                 // Group assets by directory path and type
                 const groupedAssets = new Map<string, Asset[]>();
 
-                // Wait a bit for adapter-static to finish writing files
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                // Wait for adapter-static to finish and process HTML files
+                await new Promise(resolve => setTimeout(resolve, 2000));
 
-                // Process HTML files from bundle assets
-                for (const asset of bundleAssets.values()) {
-                    if (asset.type === 'html') {
-                        const groupName = getGroupName(asset.path, 'html');
-                        const group = groupedAssets.get(groupName) || [];
-                        group.push(asset);
-                        groupedAssets.set(groupName, group);
+                // Process HTML files from build directory
+                try {
+                    const buildDir = resolve(__dirname, '../build');
+                    console.log('Looking for HTML files in:', buildDir);
+                    const entries = await fs.readdir(buildDir);
+                    console.log('Found files:', entries);
+
+                    // Create a dedicated group for HTML files
+                    const htmlGroup: Asset[] = [];
+
+                    for (const entry of entries) {
+                        if (entry.endsWith('.html')) {
+const fullPath = resolve(buildDir, entry);
+                            const content = await fs.readFile(fullPath, 'utf-8');
+                            console.log('Processing HTML file:', entry);
+
+                            const htmlAsset: Asset = {
+                                path: entry,
+                                name: entry.replace(/[.-]/g, '_'),
+                                content,
+                                contentType: 'text/html',
+                                type: 'html',
+																																isServer: false
+                            };
+
+                            // Add to bundle assets and HTML group
+                            bundleAssets.set(entry, htmlAsset);
+                            htmlGroup.push(htmlAsset);
+                        }
                     }
+
+                    // Add HTML group to client assets
+                    if (htmlGroup.length > 0) {
+                        groupedAssets.set('ui_html', htmlGroup);
+                    }
+                } catch (error: any) {
+                    console.error('Error processing HTML files:', error);
                 }
 
                 // Add bundle assets (excluding HTML files), separating server and client assets
@@ -330,15 +359,11 @@ export function cppPlugin(options: CppPluginOptions = {}): Plugin {
                             }
                         }
 
-                        // Check if this is a server build by looking at the bundle structure
-                        const isServer = Array.from(bundleAssets.keys()).some(key =>
-                            key.startsWith('.svelte-kit/output/server/') ||
-                            key.includes('/server/') ||
-                            key.includes('entries/')
-                        );
-                        console.log(`Writing ${isServer ? 'server' : 'client'} file: ${getOutputPath(`${groupName}.h`, isServer)}`);
+                        // Use the group name to determine if it's a server file
+                        const isServerGroup = groupName.startsWith('server_');
+                        console.log(`Writing ${isServerGroup ? 'server' : 'client'} file: ${getOutputPath(`${groupName}.h`, isServerGroup)}`);
                         console.log('Bundle assets:', Array.from(bundleAssets.keys()));
-                        const filePath = getOutputPath(`${groupName}.h`, isServer);
+                        const filePath = getOutputPath(`${groupName}.h`, isServerGroup);
                                                 try {
                                                     await fs.writeFile(filePath, header);
                                                     console.log(`Successfully wrote file: ${filePath}`);
@@ -412,16 +437,12 @@ ${routes.join('\n')}
 ${htmlRoutes.join('\n')}
 }`;
 
-                    // Check if this is a server build by looking at the bundle structure
-                    const isServer = Array.from(bundleAssets.keys()).some(key =>
-                        key.startsWith('.svelte-kit/output/server/') ||
-                        key.includes('/server/') ||
-                        key.includes('entries/')
-                    );
+                    // Use the presence of server_ prefixed groups to determine if this is a server build
+                    const isServer = Array.from(groupedAssets.keys()).some(name => name.startsWith('server_'));
                     console.log('\nWriting routes file:');
                     console.log('Is server build:', isServer);
                     console.log('Output path:', getOutputPath(`${outPrefix}routes.h`, isServer));
-                    console.log('Bundle keys:', Array.from(bundleAssets.keys()));
+                    console.log('Grouped assets:', Array.from(groupedAssets.keys()));
                     const routesPath = getOutputPath(`${outPrefix}routes.h`, isServer);
                                         try {
                                             await fs.writeFile(routesPath, routesHeader);
