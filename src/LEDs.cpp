@@ -37,18 +37,18 @@ void ConnectToWifi() {
     AsyncWiFiSettings.heading("<a href='https://espresense.com/configuration/settings#leds' target='_blank'>LEDs</a>", false);
 
     led_1_type = AsyncWiFiSettings.dropdown("led_1_type", ledTypes, DEFAULT_LED1_TYPE, "LED Type");
-    led_1_pin = AsyncWiFiSettings.integer("led_1_pin", -1, 39, DEFAULT_LED1_PIN, "Pin (-1 to disable)");
-    led_1_cnt = AsyncWiFiSettings.integer("led_1_cnt", -1, 39, DEFAULT_LED1_CNT, "Count (only applies to Addressable LEDs)");
+    led_1_pin = AsyncWiFiSettings.integer("led_1_pin", -1, 48, DEFAULT_LED1_PIN, "Pin (-1 to disable)");
+    led_1_cnt = AsyncWiFiSettings.integer("led_1_cnt", -1, 48, DEFAULT_LED1_CNT, "Count (only applies to Addressable LEDs)");
     led_1_cntrl = (ControlType)AsyncWiFiSettings.dropdown("led_1_cntrl", ledControlTypes, DEFAULT_LED1_CNTRL, "LED Control");
 
     led_2_type = AsyncWiFiSettings.dropdown("led_2_type", ledTypes, 0, "LED Type");
-    led_2_pin = AsyncWiFiSettings.integer("led_2_pin", -1, 39, -1, "Pin (-1 to disable)");
-    led_2_cnt = AsyncWiFiSettings.integer("led_2_cnt", -1, 39, 1, "Count (only applies to Addressable LEDs)");
+    led_2_pin = AsyncWiFiSettings.integer("led_2_pin", -1, 48, -1, "Pin (-1 to disable)");
+    led_2_cnt = AsyncWiFiSettings.integer("led_2_cnt", -1, 48, 1, "Count (only applies to Addressable LEDs)");
     led_2_cntrl = (ControlType)AsyncWiFiSettings.dropdown("led_2_cntrl", ledControlTypes, 0, "LED Control");
 
     led_3_type = AsyncWiFiSettings.dropdown("led_3_type", ledTypes, 0, "LED Type");
-    led_3_pin = AsyncWiFiSettings.integer("led_3_pin", -1, 39, -1, "Pin (-1 to disable)");
-    led_3_cnt = AsyncWiFiSettings.integer("led_3_cnt", -1, 39, 1, "Count (only applies to Addressable LEDs)");
+    led_3_pin = AsyncWiFiSettings.integer("led_3_pin", -1, 48, -1, "Pin (-1 to disable)");
+    led_3_cnt = AsyncWiFiSettings.integer("led_3_cnt", -1, 48, 1, "Count (only applies to Addressable LEDs)");
     led_3_cntrl = (ControlType)AsyncWiFiSettings.dropdown("led_3_cntrl", ledControlTypes, 0, "LED Control");
 
     leds.push_back(newLed(1, led_1_cntrl, led_1_type, led_1_pin, led_1_cnt));
